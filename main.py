@@ -259,7 +259,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CHAT_ID
     CHAT_ID = update.message.chat_id
     save_seen(load_seen()['seen_links'], CHAT_ID)
-    await update.message.reply_text('Бот запущен! Я проверяю новые объявления каждые 5 минут и присылаю тебе только подходящие машины (500+ евро дешевле, до 130000 км, TÜV, без повреждений, от частников).')
+    await update.message.reply_text('Бот запущен! Я проверяю новые объявления каждые 5 минут и присылаю тебе только подходящие машины.')
 
 async def best_deals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Проверяю вручную...')
