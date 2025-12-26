@@ -226,24 +226,21 @@ def scrape_for_year(model_name, year, data):
             continue
 
         saving = avg - price
-        if saving < 500: continue  # Только если дешевле на 500+ евро
+        if saving < 500: continue
 
         desc = ad.find('p', class_=lambda x: x and 'description' in x.lower())
         description = (desc.get_text(strip=True) + title).lower() if desc else title.lower()
 
-        bad_words = ['unfall', 'defekt', 'bastler', 'reparatur', 'schaden', 'beschädigt', 'tüv abgelaufen', 'tüv neu']
+        bad_words = ['unfall', 'defekt', 'bastler', 'reparatur', 'schaden', 'beschädigt', 'tüv abgelaufen']
         if any(word in description for word in bad_words): continue
 
-        # Пробег до 130000 км
         km_match = re.search(r'\b(\d{1,3}(?:[.,]\d{3})*)\s*km\b', description + title)
         if km_match:
             km = int(km_match.group(1).replace('.', '').replace(',', ''))
             if km > 130000: continue
 
-        # TÜV должен быть
         if 'tüv' not in description and 'hu' not in description: continue
 
-        # Год выпуска
         year_match = re.search(r'\b(20\d{2})\b', description + title)
         if not year_match or int(year_match.group(0)) != year: continue
 
