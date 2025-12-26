@@ -9,7 +9,7 @@ import time
 import threading
 import schedule
 
-TOKEN = os.environ.get('TOKEN')  # Теперь токен берётся из Environment Variables Render
+TOKEN = os.environ.get('8596282396:AAFKJKhqeB59XtM_-Dwbh1If4Nt_7wNPN6o')  # Теперь токен берётся из Environment Variables Render
 
 # ... (весь словарь MODELS остаётся тем же, что был раньше — вставь его сюда полностью)
 
