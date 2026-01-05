@@ -10,26 +10,35 @@ import http.server
 import socketserver
 import threading
 
-# --- БЛОК ДЛЯ RENDER (WEB SERVICE DUMMY SERVER) ---
+# --- OPTIMIERTER RENDER HEALTH-CHECK SERVER ---
+# Dieser Teil sorgt dafür, dass Render den Bot nicht wegen Inaktivität abschaltet.
+class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is running...")
+
 def run_dummy_server():
     port = int(os.environ.get("PORT", 10000))
-    handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(("", port), handler) as httpd:
-        print(f"Dummy server started on port {port}")
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.TCPServer(("", port), HealthCheckHandler) as httpd:
+        print(f"✅ Render Health-Check aktiv auf Port {port}")
         httpd.serve_forever()
 
+# Startet den Web-Server in einem separaten Thread
 threading.Thread(target=run_dummy_server, daemon=True).start()
-# --------------------------------------------------
 
+# --- KONFIGURATION ---
 TOKEN = os.environ.get('TOKEN')
 SEEN_FILE = 'seen_offers.json'
 CHAT_ID = None
 
 if not TOKEN:
-    print("ERROR: TOKEN not found in environment variables!")
+    print("❌ FEHLER: Kein TOKEN in den Umgebungsvariablen gefunden!")
     exit(1)
 
-# ПОЛНЫЙ СПИСОК ВСЕХ ТВОИХ МОДЕЛЕЙ
+# --- DEINE VOLLSTÄNDIGE MODELL-LISTE ---
 MODELS = {
     'VW Polo 5. Gen. (2009-2017)': {
         2009: {'avg': 4000, 'query': 'volkswagen+polo+2009'},
@@ -154,6 +163,7 @@ MODELS = {
     },
 }
 
+# --- FUNKTIONEN ---
 def load_seen():
     if os.path.exists(SEEN_FILE):
         try:
@@ -164,7 +174,7 @@ def load_seen():
 
 def save_seen(seen_links, chat_id=None):
     data = load_seen()
-    data['seen_links'] = seen_links
+    data['seen_links'] = list(seen_links)
     if chat_id: data['chat_id'] = chat_id
     with open(SEEN_FILE, 'w') as f:
         json.dump(data, f)
@@ -233,6 +243,7 @@ async def check_new_deals(context: ContextTypes.DEFAULT_TYPE):
     seen_links = set(stored_data['seen_links'])
     all_results = []
     
+    print("🔎 Suche nach neuen Angeboten...")
     for model, years in MODELS.items():
         for year, year_data in years.items():
             found = scrape_for_year(model, year, year_data)
@@ -240,9 +251,10 @@ async def check_new_deals(context: ContextTypes.DEFAULT_TYPE):
                 if res['link'] not in seen_links:
                     all_results.append(res)
                     seen_links.add(res['link'])
-            await asyncio.sleep(4) 
+            await asyncio.sleep(2) # Kurze Pause gegen Bot-Sperre
 
     save_seen(list(seen_links), CHAT_ID)
+    
     if all_results:
         all_results.sort(key=lambda x: x['saving'], reverse=True)
         for res in all_results[:10]:
@@ -256,11 +268,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CHAT_ID
     CHAT_ID = update.effective_chat.id
     save_seen(load_seen()['seen_links'], CHAT_ID)
-    await update.message.reply_text("Бот запущен! Ищу все ваши модели (VW, Opel, Ford, Honda, Mazda, Kia) до 130.000 км.")
+    await update.message.reply_text("✅ Бот запущен! Ищу машины (VW, Opel, Ford, Honda, Mazda, Kia) до 130.000 км. Каждые 10 минут проверяю новые объявления.")
 
+# --- HAUPTPROGRAMM ---
 if __name__ == '__main__':
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler('start', start))
-    app.job_queue.run_repeating(check_new_deals, interval=600, first=10)
-    print("Бот запущен...")
-    app.run_polling(drop_pending_updates=True)
+    application = Application.builder().token(TOKEN).build()
+    
+    # Handlers
+    application.add_handler(CommandHandler('start', start))
+    
+    # Job Queue: Suchlauf alle 10 Minuten (600 Sekunden)
+    if application.job_queue:
+        application.job_queue.run_repeating(check_new_deals, interval=600, first=10)
+    
+    print("🚀 Telegram Bot wird gestartet...")
+    application.run_polling(drop_pending_updates=True)
