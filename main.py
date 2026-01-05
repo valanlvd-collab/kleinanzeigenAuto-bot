@@ -10,33 +10,27 @@ import http.server
 import socketserver
 import threading
 
-# --- STABILER RENDER HEALTH-CHECK SERVER ---
+# --- RENDER HEALTH-CHECK SERVER ---
 class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot status: Online and monitoring Kleinanzeigen")
+        self.wfile.write(b"Bot status: Monitoring with 130k km filter active")
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 10000))
-    # Erlaubt den sofortigen Neustart des Ports ohne 'Address already in use' Fehler
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", port), HealthCheckHandler) as httpd:
-        print(f"✅ Render Health-Check aktiv auf Port {port}")
+        print(f"✅ Health-Check Server auf Port {port}")
         httpd.serve_forever()
 
-# Startet den Web-Server sofort im Hintergrund
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
 # --- KONFIGURATION ---
 TOKEN = os.environ.get('TOKEN')
 SEEN_FILE = 'seen_offers.json'
 CHAT_ID = None
-
-if not TOKEN:
-    print("❌ FEHLER: Kein TOKEN in den Umgebungsvariablen gefunden!")
-    exit(1)
 
 # --- DEINE MODELL-LISTE ---
 MODELS = {
@@ -199,6 +193,7 @@ def scrape_for_year(model_name, year, data):
             title = title_elem.get_text(strip=True)
             link = 'https://www.kleinanzeigen.de' + title_elem['href']
 
+            # Preis extrahieren
             price_elem = ad.find('p', class_=lambda x: x and 'price' in x.lower())
             price_str = re.sub(r'[^\d]', '', price_elem.get_text()) if price_elem else ''
             try:
@@ -208,31 +203,51 @@ def scrape_for_year(model_name, year, data):
             saving = data['avg'] - price
             if saving < 500: continue
 
+            # --- VERBESSERTE KM-ERKENNUNG ---
+            # 1. Wir holen Text aus Beschreibung und Titel
             desc_elem = ad.find('p', class_=lambda x: x and 'description' in x.lower())
             description = (desc_elem.get_text(strip=True) if desc_elem else "").lower()
-            full_text = (title + " " + description).lower()
+            
+            # 2. Wir holen Text aus den grauen Info-Tags (da stehen KM oft drin!)
+            tags = ad.find_all('span', class_='simple-feature-list__feature')
+            tag_text = " ".join([t.get_text().lower() for t in tags])
+            
+            full_text = f"{title.lower()} {description} {tag_text}"
             
             km_found = None
-            km_match = re.search(r'(\d{1,3}[\.,]?\d{3})\s*(?:km|км|kilom)', full_text)
-            tkm_match = re.search(r'(\d{2,3})\s*tkm', full_text)
+            # Suche 1: "125.000 km" oder "125000km"
+            km_match = re.search(r'(\d{1,3}[\.,]?\d{3})\s*(?:km|км)', full_text)
+            # Suche 2: "90 tkm"
+            tkm_match = re.search(r'(\d{1,3})\s*(?:tkm|ткм)', full_text)
             
             if km_match:
                 km_found = int(re.sub(r'[^\d]', '', km_match.group(1)))
             elif tkm_match:
                 km_found = int(tkm_match.group(1)) * 1000
+
+            # --- DER FILTER ---
+            # Wenn kein KM gefunden ODER über 130.000 -> Überspringen
+            if km_found is None:
+                # Optional: Falls du Autos ohne KM-Angabe trotzdem willst, kommentiere das 'continue' aus.
+                # Aber für 130k Limit müssen wir es wissen.
+                continue 
             
-            if km_found is None or km_found > 130000:
+            if km_found > 130000:
+                print(f"⏩ Übersprungen: {title} hat {km_found} km")
                 continue
 
-            bad_words = ['unfall', 'defekt', 'bastler', 'schaden', 'beschädigт', 'motorschaden', 'getriebeschaden']
+            # Unfall-Filter
+            bad_words = ['unfall', 'defekt', 'bastler', 'schaden', 'beschädigt', 'motorschaden', 'getriebeschaden']
             if any(word in full_text for word in bad_words): continue
 
             results.append({
-                'model': model_name, 'year': year, 'title': f"{title} [{km_found} km]",
+                'model': model_name, 'year': year, 'title': f"{title} ({km_found} km)",
                 'price': price, 'saving': saving, 'link': link
             })
         return results
-    except: return []
+    except Exception as e:
+        print(f"⚠️ Fehler: {e}")
+        return []
 
 async def check_new_deals(context: ContextTypes.DEFAULT_TYPE):
     global CHAT_ID
@@ -243,7 +258,6 @@ async def check_new_deals(context: ContextTypes.DEFAULT_TYPE):
     seen_links = set(stored_data['seen_links'])
     all_results = []
     
-    print("🔎 Suche nach neuen Angeboten...")
     for model, years in MODELS.items():
         for year, year_data in years.items():
             found = scrape_for_year(model, year, year_data)
@@ -268,16 +282,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CHAT_ID
     CHAT_ID = update.effective_chat.id
     save_seen(load_seen()['seen_links'], CHAT_ID)
-    await update.message.reply_text("✅ Бот запущен! Ищу машины (VW, Opel, Ford, Honda, Mazda, Kia) до 130.000 км. Каждые 10 минут проверяю новые объявления.")
+    await update.message.reply_text("✅ Бот запущен! Фильтр: до 130.000 км. Каждые 10 минут проверка.")
 
-# --- HAUPTPROGRAMM ---
 if __name__ == '__main__':
     application = Application.builder().token(TOKEN).build()
-    
     application.add_handler(CommandHandler('start', start))
-    
     if application.job_queue:
         application.job_queue.run_repeating(check_new_deals, interval=600, first=10)
     
-    print("🚀 Telegram Bot wird gestartet...")
+    print("🚀 Bot gestartet...")
     application.run_polling(drop_pending_updates=True)
