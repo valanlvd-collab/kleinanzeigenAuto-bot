@@ -10,23 +10,23 @@ import http.server
 import socketserver
 import threading
 
-# --- OPTIMIERTER RENDER HEALTH-CHECK SERVER ---
-# Dieser Teil sorgt dafür, dass Render den Bot nicht wegen Inaktivität abschaltet.
+# --- STABILER RENDER HEALTH-CHECK SERVER ---
 class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot is running...")
+        self.wfile.write(b"Bot status: Online and monitoring Kleinanzeigen")
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 10000))
+    # Erlaubt den sofortigen Neustart des Ports ohne 'Address already in use' Fehler
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", port), HealthCheckHandler) as httpd:
         print(f"✅ Render Health-Check aktiv auf Port {port}")
         httpd.serve_forever()
 
-# Startet den Web-Server in einem separaten Thread
+# Startet den Web-Server sofort im Hintergrund
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
 # --- KONFIGURATION ---
@@ -38,7 +38,7 @@ if not TOKEN:
     print("❌ FEHLER: Kein TOKEN in den Umgebungsvariablen gefunden!")
     exit(1)
 
-# --- DEINE VOLLSTÄNDIGE MODELL-LISTE ---
+# --- DEINE MODELL-LISTE ---
 MODELS = {
     'VW Polo 5. Gen. (2009-2017)': {
         2009: {'avg': 4000, 'query': 'volkswagen+polo+2009'},
@@ -251,7 +251,7 @@ async def check_new_deals(context: ContextTypes.DEFAULT_TYPE):
                 if res['link'] not in seen_links:
                     all_results.append(res)
                     seen_links.add(res['link'])
-            await asyncio.sleep(2) # Kurze Pause gegen Bot-Sperre
+            await asyncio.sleep(2) 
 
     save_seen(list(seen_links), CHAT_ID)
     
@@ -274,10 +274,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     application = Application.builder().token(TOKEN).build()
     
-    # Handlers
     application.add_handler(CommandHandler('start', start))
     
-    # Job Queue: Suchlauf alle 10 Minuten (600 Sekunden)
     if application.job_queue:
         application.job_queue.run_repeating(check_new_deals, interval=600, first=10)
     
