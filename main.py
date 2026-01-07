@@ -10,254 +10,93 @@ import http.server
 import socketserver
 import threading
 
-# --- RENDER HEALTH-CHECK SERVER ---
-class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot status: Monitoring with 130k km filter active")
-
+# --- RENDER DUMMY SERVER ---
 def run_dummy_server():
     port = int(os.environ.get("PORT", 10000))
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", port), HealthCheckHandler) as httpd:
-        print(f"✅ Health-Check Server auf Port {port}")
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", port), handler) as httpd:
+        print(f"Dummy server started on port {port}")
         httpd.serve_forever()
 
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
-# --- KONFIGURATION ---
 TOKEN = os.environ.get('TOKEN')
 SEEN_FILE = 'seen_offers.json'
 CHAT_ID = None
 
-# --- DEINE MODELL-LISTE ---
+if not TOKEN:
+    print("ERROR: TOKEN not found!")
+    exit(1)
+
+# ПОЛНЫЙ СПИСОК (С учетом VW up! и Seat)
 MODELS = {
-    'VW Polo 5. Gen. (2009-2017)': {
-        2009: {'avg': 4000, 'query': 'volkswagen+polo+2009'},
-        2010: {'avg': 4500, 'query': 'volkswagen+polo+2010'},
-        2011: {'avg': 5000, 'query': 'volkswagen+polo+2011'},
-        2012: {'avg': 5500, 'query': 'volkswagen+polo+2012'},
-        2013: {'avg': 6000, 'query': 'volkswagen+polo+2013'},
-        2014: {'avg': 6500, 'query': 'volkswagen+polo+2014'},
-        2015: {'avg': 7000, 'query': 'volkswagen+polo+2015'},
-        2016: {'avg': 7500, 'query': 'volkswagen+polo+2016'},
-        2017: {'avg': 8000, 'query': 'volkswagen+polo+2017'},
-    },
-    'Opel Corsa D (2006-2014)': {
-        2006: {'avg': 2000, 'query': 'opel+corsa+d+2006'},
-        2007: {'avg': 2500, 'query': 'opel+corsa+d+2007'},
-        2008: {'avg': 3000, 'query': 'opel+corsa+d+2008'},
-        2009: {'avg': 3500, 'query': 'opel+corsa+d+2009'},
-        2010: {'avg': 4000, 'query': 'opel+corsa+d+2010'},
-        2011: {'avg': 4500, 'query': 'opel+corsa+d+2011'},
-        2012: {'avg': 5000, 'query': 'opel+corsa+d+2012'},
-        2013: {'avg': 5500, 'query': 'opel+corsa+d+2013'},
-        2014: {'avg': 6000, 'query': 'opel+corsa+d+2014'},
-    },
-    'Opel Corsa E (2014-2020)': {
-        2014: {'avg': 6500, 'query': 'opel+corsa+e+2014'},
-        2015: {'avg': 7500, 'query': 'opel+corsa+e+2015'},
-        2016: {'avg': 8500, 'query': 'opel+corsa+e+2016'},
-        2017: {'avg': 9500, 'query': 'opel+corsa+e+2017'},
-        2018: {'avg': 10500, 'query': 'opel+corsa+e+2018'},
-        2019: {'avg': 11500, 'query': 'opel+corsa+e+2019'},
-        2020: {'avg': 12500, 'query': 'opel+corsa+e+2020'},
-    },
-    'Ford Fiesta Mk7 (2008-2017)': {
-        2008: {'avg': 3000, 'query': 'ford+fiesta+mk7+2008'},
-        2009: {'avg': 3500, 'query': 'ford+fiesta+mk7+2009'},
-        2010: {'avg': 4000, 'query': 'ford+fiesta+mk7+2010'},
-        2011: {'avg': 4500, 'query': 'ford+fiesta+mk7+2011'},
-        2012: {'avg': 5000, 'query': 'ford+fiesta+mk7+2012'},
-        2013: {'avg': 5500, 'query': 'ford+fiesta+mk7+2013'},
-        2014: {'avg': 6000, 'query': 'ford+fiesta+mk7+2014'},
-        2015: {'avg': 6500, 'query': 'ford+fiesta+mk7+2015'},
-        2016: {'avg': 7000, 'query': 'ford+fiesta+mk7+2016'},
-        2017: {'avg': 8000, 'query': 'ford+fiesta+mk7+2017'},
-    },
-    'Ford Fiesta (2017-2023)': {
-        2017: {'avg': 9500, 'query': 'ford+fiesta+2017'},
-        2018: {'avg': 10500, 'query': 'ford+fiesta+2018'},
-        2019: {'avg': 11500, 'query': 'ford+fiesta+2019'},
-        2020: {'avg': 12500, 'query': 'ford+fiesta+2020'},
-        2021: {'avg': 14000, 'query': 'ford+fiesta+2021'},
-        2022: {'avg': 15500, 'query': 'ford+fiesta+2022'},
-        2023: {'avg': 17000, 'query': 'ford+fiesta+2023'},
-    },
-    'Honda Jazz 3. Gen. (2008-2015)': {
-        2008: {'avg': 4000, 'query': 'honda+jazz+2008'},
-        2009: {'avg': 4500, 'query': 'honda+jazz+2009'},
-        2010: {'avg': 5000, 'query': 'honda+jazz+2010'},
-        2011: {'avg': 5500, 'query': 'honda+jazz+2011'},
-        2012: {'avg': 6000, 'query': 'honda+jazz+2012'},
-        2013: {'avg': 6500, 'query': 'honda+jazz+2013'},
-        2014: {'avg': 7000, 'query': 'honda+jazz+2014'},
-        2015: {'avg': 8000, 'query': 'honda+jazz+2015'},
-    },
-    'Honda Jazz 4. Gen. (2015-2020)': {
-        2015: {'avg': 9500, 'query': 'honda+jazz+2015'},
-        2016: {'avg': 10500, 'query': 'honda+jazz+2016'},
-        2017: {'avg': 11500, 'query': 'honda+jazz+2017'},
-        2018: {'avg': 12500, 'query': 'honda+jazz+2018'},
-        2019: {'avg': 13500, 'query': 'honda+jazz+2019'},
-        2020: {'avg': 14500, 'query': 'honda+jazz+2020'},
-    },
-    'Mazda2 2. Gen. (2007-2014)': {
-        2007: {'avg': 3000, 'query': 'mazda2+2007'},
-        2008: {'avg': 3500, 'query': 'mazda2+2008'},
-        2009: {'avg': 4000, 'query': 'mazda2+2009'},
-        2010: {'avg': 4500, 'query': 'mazda2+2010'},
-        2011: {'avg': 5000, 'query': 'mazda2+2011'},
-        2012: {'avg': 5500, 'query': 'mazda2+2012'},
-        2013: {'avg': 6000, 'query': 'mazda2+2013'},
-        2014: {'avg': 6500, 'query': 'mazda2+2014'},
-    },
-    'Mazda2 3. Gen. (2015-2024)': {
-        2015: {'avg': 8000, 'query': 'mazda2+2015'},
-        2016: {'avg': 9000, 'query': 'mazda2+2016'},
-        2017: {'avg': 10000, 'query': 'mazda2+2017'},
-        2018: {'avg': 11000, 'query': 'mazda2+2018'},
-        2019: {'avg': 12000, 'query': 'mazda2+2019'},
-        2020: {'avg': 13000, 'query': 'mazda2+2020'},
-        2021: {'avg': 14000, 'query': 'mazda2+2021'},
-        2022: {'avg': 15000, 'query': 'mazda2+2022'},
-        2023: {'avg': 16000, 'query': 'mazda2+2023'},
-        2024: {'avg': 17000, 'query': 'mazda2+2024'},
-    },
-    'Kia Picanto 1. Gen. (2004-2011)': {
-        2004: {'avg': 1500, 'query': 'kia+picanto+2004'},
-        2005: {'avg': 1800, 'query': 'kia+picanto+2005'},
-        2006: {'avg': 2000, 'query': 'kia+picanto+2006'},
-        2007: {'avg': 2200, 'query': 'kia+picanto+2007'},
-        2008: {'avg': 2500, 'query': 'kia+picanto+2008'},
-        2009: {'avg': 2800, 'query': 'kia+picanto+2009'},
-        2010: {'avg': 3200, 'query': 'kia+picanto+2010'},
-        2011: {'avg': 3500, 'query': 'kia+picanto+2011'},
-    },
-    'Kia Picanto 2. Gen. (2011-2017)': {
-        2011: {'avg': 5000, 'query': 'kia+picanto+2011'},
-        2012: {'avg': 5500, 'query': 'kia+picanto+2012'},
-        2013: {'avg': 6000, 'query': 'kia+picanto+2013'},
-        2014: {'avg': 6500, 'query': 'kia+picanto+2014'},
-        2015: {'avg': 7000, 'query': 'kia+picanto+2015'},
-        2016: {'avg': 7500, 'query': 'kia+picanto+2016'},
-        2017: {'avg': 8000, 'query': 'kia+picanto+2017'},
-    },
-    'Kia Picanto 3. Gen. (2017-2024)': {
-        2017: {'avg': 9000, 'query': 'kia+picanto+2017'},
-        2018: {'avg': 10000, 'query': 'kia+picanto+2018'},
-        2019: {'avg': 11000, 'query': 'kia+picanto+2019'},
-        2020: {'avg': 12000, 'query': 'kia+picanto+2020'},
-        2021: {'avg': 13000, 'query': 'kia+picanto+2021'},
-        2022: {'avg': 14000, 'query': 'kia+picanto+2022'},
-        2023: {'avg': 15000, 'query': 'kia+picanto+2023'},
-        2024: {'avg': 16000, 'query': 'kia+picanto+2024'},
-    },
+    'VW Polo (2009-2017)': {y: {'avg': 4000+(i*500), 'query': f'volkswagen+polo+{y}'} for i, y in enumerate(range(2009, 2018))},
+    'VW up! (2011-2017)': {y: {'avg': 4500+(i*600), 'query': f'volkswagen+up+{y}'} for i, y in enumerate(range(2011, 2018))},
+    'Seat Ibiza (2008-2017)': {y: {'avg': 3500+(i*650), 'query': f'seat+ibiza+{y}'} for i, y in enumerate(range(2008, 2018))},
+    'Seat Mii (2011-2017)': {y: {'avg': 4000+(i*600), 'query': f'seat+mii+{y}'} for i, y in enumerate(range(2011, 2018))},
+    'Mazda 3 (2007-2017)': {y: {'avg': 4500+(i*750), 'query': f'mazda+3+{y}'} for i, y in enumerate(range(2007, 2018))},
+    'Opel Corsa D/E (2007-2017)': {y: {'avg': 3000+(i*600), 'query': f'opel+corsa+{y}'} for i, y in enumerate(range(2007, 2018))},
+    'Ford Fiesta (2008-2017)': {y: {'avg': 3500+(i*600), 'query': f'ford+fiesta+{y}'} for i, y in enumerate(range(2008, 2018))},
+    'Toyota Auris (2007-2017)': {y: {'avg': 5500+(i*600), 'query': f'toyota+auris+{y}'} for i, y in enumerate(range(2007, 2018))},
+    'Toyota Aygo (2007-2017)': {y: {'avg': 3000+(i*400), 'query': f'toyota+aygo+{y}'} for i, y in enumerate(range(2007, 2018))},
+    'Honda Jazz (2008-2017)': {y: {'avg': 4500+(i*600), 'query': f'honda+jazz+{y}'} for i, y in enumerate(range(2008, 2018))}
 }
 
-# --- FUNKTIONEN ---
 def load_seen():
     if os.path.exists(SEEN_FILE):
         try:
-            with open(SEEN_FILE, 'r') as f:
-                return json.load(f)
+            with open(SEEN_FILE, 'r') as f: return json.load(f)
         except: pass
     return {'seen_links': [], 'chat_id': None}
 
 def save_seen(seen_links, chat_id=None):
     data = load_seen()
-    data['seen_links'] = list(seen_links)
+    data['seen_links'] = seen_links
     if chat_id: data['chat_id'] = chat_id
-    with open(SEEN_FILE, 'w') as f:
-        json.dump(data, f)
+    with open(SEEN_FILE, 'w') as f: json.dump(data, f)
 
 def scrape_for_year(model_name, year, data):
     url = f'https://www.kleinanzeigen.de/s-anbieter:privat/autos/{data["query"]}/k0c216'
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept-Language': 'de-DE,de;q=0.9',
-    }
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept-Language': 'de-DE,de;q=0.9'}
     try:
         response = requests.get(url, headers=headers, timeout=15)
         if response.status_code != 200: return []
-        
         soup = BeautifulSoup(response.text, 'html.parser')
         ads = soup.find_all('li', class_=lambda x: x and 'ad-listitem' in x)
         results = []
-        
         for ad in ads:
             title_elem = ad.find('a', class_='ellipsis')
             if not title_elem: continue
-            title = title_elem.get_text(strip=True)
-            link = 'https://www.kleinanzeigen.de' + title_elem['href']
-
-            # Preis extrahieren
+            title, link = title_elem.get_text(strip=True), 'https://www.kleinanzeigen.de' + title_elem['href']
             price_elem = ad.find('p', class_=lambda x: x and 'price' in x.lower())
             price_str = re.sub(r'[^\d]', '', price_elem.get_text()) if price_elem else ''
-            try:
-                price = float(price_str)
+            try: price = float(price_str)
             except: continue
+            if (data['avg'] - price) < 500: continue
             
-            saving = data['avg'] - price
-            if saving < 500: continue
-
-            # --- VERBESSERTE KM-ERKENNUNG ---
-            # 1. Wir holen Text aus Beschreibung und Titel
-            desc_elem = ad.find('p', class_=lambda x: x and 'description' in x.lower())
-            description = (desc_elem.get_text(strip=True) if desc_elem else "").lower()
-            
-            # 2. Wir holen Text aus den grauen Info-Tags (da stehen KM oft drin!)
-            tags = ad.find_all('span', class_='simple-feature-list__feature')
-            tag_text = " ".join([t.get_text().lower() for t in tags])
-            
-            full_text = f"{title.lower()} {description} {tag_text}"
+            desc = (ad.find('p', class_=lambda x: x and 'description' in x.lower()).get_text(strip=True) if ad.find('p', class_=lambda x: x and 'description' in x.lower()) else "").lower()
+            full_text = (title + " " + desc).lower()
             
             km_found = None
-            # Suche 1: "125.000 km" oder "125000km"
-            km_match = re.search(r'(\d{1,3}[\.,]?\d{3})\s*(?:km|км)', full_text)
-            # Suche 2: "90 tkm"
-            tkm_match = re.search(r'(\d{1,3})\s*(?:tkm|ткм)', full_text)
+            km_match = re.search(r'(\d{1,3}[\.,]?\d{3})\s*(?:km|км|kilom)', full_text)
+            tkm_match = re.search(r'(\d{2,3})\s*tkm', full_text)
+            if km_match: km_found = int(re.sub(r'[^\d]', '', km_match.group(1)))
+            elif tkm_match: km_found = int(tkm_match.group(1)) * 1000
             
-            if km_match:
-                km_found = int(re.sub(r'[^\d]', '', km_match.group(1)))
-            elif tkm_match:
-                km_found = int(tkm_match.group(1)) * 1000
-
-            # --- DER FILTER ---
-            # Wenn kein KM gefunden ODER über 130.000 -> Überspringen
-            if km_found is None:
-                # Optional: Falls du Autos ohne KM-Angabe trotzdem willst, kommentiere das 'continue' aus.
-                # Aber für 130k Limit müssen wir es wissen.
-                continue 
+            if km_found is None or km_found > 130000: continue
+            if any(word in full_text for word in ['unfall', 'defekt', 'bastler', 'schaden', 'beschädigт', 'motorschaden']): continue
             
-            if km_found > 130000:
-                print(f"⏩ Übersprungen: {title} hat {km_found} km")
-                continue
-
-            # Unfall-Filter
-            bad_words = ['unfall', 'defekt', 'bastler', 'schaden', 'beschädigt', 'motorschaden', 'getriebeschaden']
-            if any(word in full_text for word in bad_words): continue
-
-            results.append({
-                'model': model_name, 'year': year, 'title': f"{title} ({km_found} km)",
-                'price': price, 'saving': saving, 'link': link
-            })
+            results.append({'model': model_name, 'year': year, 'title': f"{title} [{km_found} km]", 'price': price, 'saving': data['avg'] - price, 'link': link})
         return results
-    except Exception as e:
-        print(f"⚠️ Fehler: {e}")
-        return []
+    except: return []
 
 async def check_new_deals(context: ContextTypes.DEFAULT_TYPE):
     global CHAT_ID
-    stored_data = load_seen()
-    if not CHAT_ID: CHAT_ID = stored_data.get('chat_id')
+    stored = load_seen()
+    if not CHAT_ID: CHAT_ID = stored.get('chat_id')
     if not CHAT_ID: return
-    
-    seen_links = set(stored_data['seen_links'])
+    seen_links = set(stored['seen_links'])
     all_results = []
-    
     for model, years in MODELS.items():
         for year, year_data in years.items():
             found = scrape_for_year(model, year, year_data)
@@ -265,30 +104,22 @@ async def check_new_deals(context: ContextTypes.DEFAULT_TYPE):
                 if res['link'] not in seen_links:
                     all_results.append(res)
                     seen_links.add(res['link'])
-            await asyncio.sleep(2) 
-
+            await asyncio.sleep(7) # Увеличил паузу до 7 сек из-за объема
     save_seen(list(seen_links), CHAT_ID)
-    
     if all_results:
         all_results.sort(key=lambda x: x['saving'], reverse=True)
         for res in all_results[:10]:
-            msg = (f"🚗 *{res['model']} ({res['year']})*\n"
-                   f"📝 {res['title']}\n"
-                   f"💰 Цена: {res['price']:.0f} € (Выгода ~{res['saving']:.0f} €)\n"
-                   f"🔗 [Открыть на сайте]({res['link']})")
+            msg = f"🚗 *{res['model']} ({res['year']})*\n📝 {res['title']}\n💰 {res['price']:.0f} € (Выгода ~{res['saving']:.0f} €)\n🔗 [Link]({res['link']})"
             await context.bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CHAT_ID
     CHAT_ID = update.effective_chat.id
     save_seen(load_seen()['seen_links'], CHAT_ID)
-    await update.message.reply_text("✅ Бот запущен! Фильтр: до 130.000 км. Каждые 10 минут проверка.")
+    await update.message.reply_text("Бот обновлен! Ищу Mazda 3, Seat, VW up! и др. до 130к пробега.")
 
 if __name__ == '__main__':
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler('start', start))
-    if application.job_queue:
-        application.job_queue.run_repeating(check_new_deals, interval=600, first=10)
-    
-    print("🚀 Bot gestartet...")
-    application.run_polling(drop_pending_updates=True)
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler('start', start))
+    app.job_queue.run_repeating(check_new_deals, interval=1800, first=10) # Раз в 30 минут
+    app.run_polling(drop_pending_updates=True)
